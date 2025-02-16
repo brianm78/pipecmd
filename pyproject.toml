@@ -1,0 +1,29 @@
+[project]
+name = "pipecmd"
+version = "0.1.0"
+description = "Simple scripting for shell-like pipelines"
+readme = "README.md"
+authors = [
+    { name = "brianm78", email = "brianmce@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = []
+
+[tool.uv]
+dev-dependencies = [
+    "pytest-cov>=6.0.0",
+    "pytest>=8.3.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length=120
+lint.select = ["F", "E", "W"]
+
+[tool.pytest.ini_options]
+testpaths = [
+    "test"
+]
