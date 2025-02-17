@@ -33,8 +33,6 @@ class BaseCommand:
     def __or__[T](self, other: CommandRunner[T]) -> T: ...
 
     def __or__[T](self, other: CommandDefinition | BaseCommand | CommandRunner[T]) -> CommandChain | T:
-        # Input/output will still go to this command (unless overridden)
-        # But need to propogate default check status to ensure checks retained by chain.
         if isinstance(other, CommandRunner):
             return other.run(self)
         return self.pipe_to(Command.make(other))
@@ -291,9 +289,6 @@ class Command(BaseCommand):
         stdout = self._get_file(stdout, self.output, "ab" if append else "wb")
         check = Undefined.get_default(check, self.check)
 
-        import sys
-
-        print(f"{self.cmd}: Using {stdin=} {stdout=}", file=sys.stderr)
         proc = subprocess.Popen([self.cmd, *self.args], stdin=stdin, stdout=stdout, **kwargs)
 
         if wait:
@@ -340,7 +335,7 @@ class BaseCommandChain(BaseCommand):
 
         return dataclasses.replace(self, cmds=cmds)
 
-    def _append_cmd(self, other: BaseCommand, flatten: bool = True) -> list[BaseCommand]:
+    def _concat_cmd(self, other: BaseCommand, flatten: bool = True) -> list[BaseCommand]:
         """Convert other to Command if not already, and concatenate with this chain's commands.
 
         If flatten is true, concatenates two chains of same type to a single chain.
@@ -354,7 +349,6 @@ class BaseCommandChain(BaseCommand):
             cmds.append(other)
 
         return cmds
-        # return dataclasses.replace(self, cmds=cmds)
 
 
 @dataclasses.dataclass(frozen=True, repr=False)
@@ -370,7 +364,7 @@ class CommandAndChain(BaseCommandChain):
     _joinString: typing.ClassVar[str] = "&&"
 
     def on_success(self, other: BaseCommand) -> CommandAndChain:
-        return dataclasses.replace(self, cmds=self._append_cmd(other))
+        return dataclasses.replace(self, cmds=self._concat_cmd(other))
 
     def run(
         self,
@@ -418,7 +412,7 @@ class CommandOrChain(BaseCommandChain):
     _joinString: typing.ClassVar[str] = "||"
 
     def on_failure(self, other: BaseCommand) -> CommandOrChain:
-        cmds = self._append_cmd(other)
+        cmds = self._concat_cmd(other)
         # Override output
         return dataclasses.replace(self, cmds=cmds)
 
@@ -464,8 +458,7 @@ class CommandChain(BaseCommandChain):
     _joinString: typing.ClassVar[str] = "|"
 
     def pipe_to(self, other: BaseCommand) -> typing.Self:
-        cmds = self._append_cmd(other)
-        # Replace output with final commands output.
+        cmds = self._concat_cmd(other)
         return dataclasses.replace(self, cmds=cmds)
 
     def run(

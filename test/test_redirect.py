@@ -11,9 +11,18 @@ from pipecmd import sh, Command, BaseCommand
 import pytest
 from pathlib import Path
 
+# Test redirection on Command / CommandChain / AndChain / OrChain
+REDIRECT_COMMANDS_ECHO = [
+    sh.echo["test"],
+    sh.echo["test"] | sh.cat,
+    sh.true & sh.echo["test"],
+    sh.false ^ sh.echo["test"],
+]
+# For passthrough stream tests (test single command and pipeline)
+REDIRECT_COMMANDS_CAT = [sh.cat, sh.cat | sh.cat]
 
-# Ie echo | cat vs echo.
-@pytest.mark.parametrize("command", [sh.echo["test"], sh.echo["test"] | sh.cat])
+
+@pytest.mark.parametrize("command", REDIRECT_COMMANDS_ECHO)
 # cmd > file vs file < cmd
 @pytest.mark.parametrize("reverse", [True, False])
 # Test redirecting outer chain vs redirecting  final command in chain.
@@ -46,7 +55,7 @@ def test_redirect_output(command: Command, tmp_path: Path, reverse: bool, redire
         path.unlink()
 
 
-@pytest.mark.parametrize("command", [sh.echo["test"], sh.echo["test"] | sh.cat])
+@pytest.mark.parametrize("command", REDIRECT_COMMANDS_ECHO)
 @pytest.mark.parametrize("reverse", [True, False])
 @pytest.mark.parametrize("use_path", [True, False])
 def test_redirect_output_append(command: Command, tmp_path: Path, reverse: bool, use_path: bool) -> None:
@@ -66,7 +75,7 @@ def test_redirect_output_append(command: Command, tmp_path: Path, reverse: bool,
     path.unlink()
 
 
-@pytest.mark.parametrize("command", [sh.echo["test"], sh.echo["test"] | sh.cat])
+@pytest.mark.parametrize("command", REDIRECT_COMMANDS_ECHO)
 @pytest.mark.parametrize("reverse", [True, False])
 @pytest.mark.parametrize("shift", [True, False])
 def test_redirect_output_file(command: BaseCommand, tmp_path: Path, reverse: bool, shift: bool) -> None:
@@ -93,7 +102,7 @@ def test_redirect_output_file(command: BaseCommand, tmp_path: Path, reverse: boo
     assert cmd.run().stdout is None
 
 
-@pytest.mark.parametrize("command", [sh.echo["test"], sh.echo["test"] | sh.cat])
+@pytest.mark.parametrize("command", REDIRECT_COMMANDS_ECHO)
 def test_no_redirect(command: BaseCommand, capfd: pytest.CaptureFixture[str]) -> None:
     """Check with no file redirection, output sent to stdout normally"""
     assert command.run().stdout is None
@@ -101,7 +110,7 @@ def test_no_redirect(command: BaseCommand, capfd: pytest.CaptureFixture[str]) ->
     assert out.out == "test\n"
 
 
-@pytest.mark.parametrize("command", [sh.echo["test"], sh.echo["test"] | sh.cat])
+@pytest.mark.parametrize("command", REDIRECT_COMMANDS_ECHO)
 @pytest.mark.parametrize("reverse", [True, False])
 @pytest.mark.parametrize("shift", [True, False])
 def test_redirect_output_none(
@@ -117,7 +126,7 @@ def test_redirect_output_none(
     assert out.out == ""
 
 
-@pytest.mark.parametrize("command", [sh.cat, sh.cat | sh.cat])
+@pytest.mark.parametrize("command", REDIRECT_COMMANDS_CAT)
 @pytest.mark.parametrize("reverse", [True, False])
 @pytest.mark.parametrize("shift", [True, False])
 @pytest.mark.parametrize("use_path", [True, False])
@@ -140,7 +149,7 @@ def test_redirect_input(tmp_path: Path, command: BaseCommand, reverse: bool, shi
     assert str(cmd) == "1234"
 
 
-@pytest.mark.parametrize("command", [sh.cat, sh.cat | sh.cat])
+@pytest.mark.parametrize("command", REDIRECT_COMMANDS_CAT)
 @pytest.mark.parametrize("reverse", [True, False])
 @pytest.mark.parametrize("shift", [True, False])
 @pytest.mark.parametrize("mode", ["r", "rb"])
@@ -161,7 +170,7 @@ def test_redirect_input_file(command: BaseCommand, tmp_path: Path, reverse: bool
     assert path.read_text() == "1234"
 
 
-@pytest.mark.parametrize("command", [sh.cat, sh.cat | sh.cat])
+@pytest.mark.parametrize("command", REDIRECT_COMMANDS_CAT)
 @pytest.mark.parametrize("reverse", [True, False])
 @pytest.mark.parametrize("shift", [True, False])
 def test_redirect_input_none(command: BaseCommand, reverse: bool, shift: bool) -> None:
@@ -173,7 +182,7 @@ def test_redirect_input_none(command: BaseCommand, reverse: bool, shift: bool) -
 
 
 def test_chain_redirection_and(tmp_path: Path) -> None:
-    # Test complex chain with multiple redirections.
+    # Test complex chain with multiple redirections of seperate commands.
     file1 = tmp_path / "file1.txt"
     file2 = tmp_path / "file2.txt"
     file3 = tmp_path / "file3.txt"
