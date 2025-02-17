@@ -1,6 +1,6 @@
 # Pipecmd
 
-A simple utility library for quickly chaining commandline commands together with a shell-like syntax.
+A simple typed utility library for quickly chaining commandline commands together with a shell-like syntax.
 Attempts to mimic shell syntax within python for common operations like running commands,
 creating pipelines and redirecting output.
 
@@ -10,14 +10,21 @@ To define commands, use `Command(name, [args])` or use the helper `sh` object.
 Additional arguments may be provided by indexing with a string or tuple of strings (or paths).
 Such commands can be combined with other commands by pipelines ("|"), or conditionally chained together.
 
-The command will be run and the output returned when calling str(), bytes() or iterating over the lines,
-or by calling it (which will return the `subprocess.Popen` object)
+To run the command or pipeline, either:
+    - call the command object by either `command()` or `command.run()`
+    - Pipe the object to a helper CommandRunner object
+    - Call str() or bytes() on it to run the command and capture stdout as a string / bytes object.
+
 Also supports shell-style && or || chaining by overloading the & and ^ operators (^ since | already taken by pipes)
 
 Some examples:
 
+    from pipecmd import sh, run, bg
+
     cmd = sh.du["/tmp"] | sh.sort["-n"]
-    str(cmd)  # Equivalent to bash's `du /tmp | sort -n`
+    cmd()       # Run the command
+    cmd | run   # Equivalent to running, by piping to special CommandRunner object.
+    str(cmd)    # Equivalent to bash's `du /tmp | sort -n`
     bytes(cmd)  # Same, but returns raw byte output.
     for line in cmd:
         # Iterate line by line over results.
@@ -25,22 +32,30 @@ Some examples:
 Note: Each retrieval of results (str() / bytes() call) will re-run the command.
 
 
-File redirection (to a path/string, a file object or subprocess value)
+Allows file redirection (to a path/string, a file object or subprocess value):
 
-    cmd = sh.ls["/tmp"] > "out.txt"
-    cmd()  # Runs "ls /tmp" and writes results in a file named "out.txt"
+    # Runs "ls /tmp" and writes results in a file named "out.txt"
+    sh.ls["/tmp"] > "out.txt" | run
 
-    cmd = Path("in.txt") | sh.sort > "out.txt"
-    cmd()  # Reads in.txt, sends to sort and writes result to "out.txt"
+    # Reads in.txt, sends to sort and writes result to "out.txt"
+    # Does not block until process completion
+    cmd = Path("in.txt") | sh.sort > "out.txt" | bg
 
+    # May also write to file object:
     with open("out.txt") as f:
-        cmd = sh.ls["in.txt] > f
-        cmd() # To file object.
+        sh.ls["/tmp"] > f | run
+
+    # Or to pipe
+    proc = sh.ls["/tmp"] > subprocess.PIPE | run
+    print(proc.stdout.read().decode('utf8'))
+    
 
 Shell style && / || chaining supported via "&" and "^" overloads ("^" used since "|" already taken).
 
-    sh.false & sh.echo["This never runs"]
-    sh.true ^ sh.echo["Nor does this"]
+    sh.false & sh.echo["This never runs"] | run
+    sh.true ^ sh.echo["Nor does this"] | run
+    sh.true & sh.echo["This does"] | run
+    sh.false ^ sh.echo["As does this"] | run
 
 Automatically attempts to coerce strings / iterables of strings to Command objects when combined (Path objects
 also accepted):
@@ -53,13 +68,12 @@ Can be configured to automatically raise an exception when the returncode is non
 to command constructor or invocation, or by using the helper "checked" object.
 
     sh.false(check=True)  # Raises exception when /bin/false returns non-zero returncode.
-    checked.false()       # Defaults to check=True
+    checked.false()       # Commands instantiated from checked default to check=True
 
 Commands constructed by coercion from string / sequences inherit the checked status of the command they are being combined with.  Eg.
 
-    sh.echo["foo"] | "false"       # No exception
-    checked.echo["foo"] | "false"  # Raises
-
+    sh.echo["foo"] | "false" | run       # No exception
+    checked.echo["foo"] | "false" | run  # Raises
 
 Note that for pipelines, the check is only performed for the final command in the pipeline, as this is the only
 one wait()ed on.  Commands run in the background (wait=False) are also not checked.
@@ -217,6 +231,50 @@ that run all their consituents until the first failing / first succeeding comman
 
 The same coercion rules apply as for CommandChain.
 
+### CommandRunner
+
+A few convenience objects (`run`, `bg`, `capture` are provided to immediately run commands when piped to.
+These are instances of CommandRunner, and may be called to produce a new CommandRunner object overriding
+various settings.  Eg:
+
+    proc = sh.ls | run  # Immediately run ls without capturing output.  Returns Popen object.
+    res = sh.ls | run(from_str=str) # Capture output and convert to string.
+    res = sh.echo["123"] | run(from_str=int)  # Capture output and convert to integer.
+
+The default behaviour of the exported objects are:
+
+    run:  Runs the command and waits for completion
+    bg:   Runs the command without waiting for completion
+    capture: Runs the command returns the captured stdout as a string.
+
+This default behaviour may be customised by calling the objects with the following parameters:
+
+    capture:
+        If True, redirect stdout to a pipe available from the returned Popen object's stdout.
+        This will replace any file redirection on the process.
+
+    from_proc:
+        Provide a callable taking the Popen object and returning some result.
+        This will be returned when the command is run.
+        The command will automatically be redirected to a subprocess.PIPE to collect the output.
+
+    from_str:
+        Similar to from_proc, but the function provided takes the process output as a string.
+        Implies capture=True
+
+    from_bytes:
+        As from_str, but the raw bytes output is provided.
+        Implies capture=True
+
+    wait:
+        Wait for the process to finish before returning.
+
+    check:
+        If True, check the returncode of the final command is 0.  Otherwise raise an exception.
+        If an integer, instead checks the returncode matches this value.
+
+Eg. `bg` is equivalent to `run(wait=False)` and `capture` is equivalent to `run(from_str=str)`
+
 ### Helper Objects
 
 The `sh` helper can be used to construct command objects via attribute access or `[]` indexing.  Eg
@@ -230,8 +288,8 @@ The `checked` helper operates similarly, but commands construced from it (or con
 default to raising an exception when returning a non zero return code.
 Eg.
 
-    checked.false()  # Will raise exception.
-    checked.echo | ["false"]  # As will this.
+    checked.false()                 # Will raise exception.
+    checked.echo | ["false"] | run  # As will this.
 
 ## TODO
 
@@ -241,18 +299,25 @@ Eg.
 
     And even *kind-of* allows chaining directly with python's short-cirtuiting logic operators like:
 
-        (sh.test["!", "-e", file] and sh.touch(file)).run()
+        sh.test["!", "-e", file] and sh.touch(file) | run
 
     But this really eagerly evaluates the first command at definition time, which has inuintuitive semantics
     compared to how everything else works, so I think this is probably a bad idea.
 
- - Maybe a more natural syntax for signallying a command should be run.  Doing
+ - Not sure if I should re-jig file redirection.  Currently works directionally like:
 
-    (sh.echo["x"] | sh.cat > "file.txt")()
+        input > command > output
 
-   Is a bit clunky.  Maybe define some helper objects such that:
+    Or
 
-    command | run  # Immediately run and return proc
-    command | bg   # As run, but wait=False
+        output < command < input
 
-   Immediately runs and returns the Popen object?
+    But that may be overly confusing.  The `output < command` in particular looks a bit odd.
+    `input >` seems more reasonable since it mirrors how pipes work.
+
+    Should perhaps only support shell style where redirection appears after command only.  Ie:
+
+        command <input >output
+
+    (This does currently work, but maybe should be the only supported form)
+    Alternatively, maybe allow input > command but not output < command
