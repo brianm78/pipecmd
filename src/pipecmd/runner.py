@@ -8,6 +8,13 @@ if typing.TYPE_CHECKING:
     from .command import BaseCommand
 
 
+class _CommandRunnerArgs[T](typing.TypedDict, total=False):
+    get_result: typing.Callable[[subprocess.Popen[bytes]], T]
+    wait: bool
+    check: bool | int | Undefined
+    capture: bool
+
+
 @dataclasses.dataclass(frozen=True)
 class CommandRunner[T]:
     get_result: typing.Callable[[subprocess.Popen[bytes]], T]
@@ -48,8 +55,8 @@ class CommandRunner[T]:
     def __call__[U](
         self,
         *,
-        capture: bool = False,
         from_proc: typing.Callable[[subprocess.Popen[bytes]], U],
+        capture: bool | Undefined = Undefined.val,
         wait: bool | Undefined = Undefined.val,
         check: bool | int | Undefined = Undefined.val,
     ) -> CommandRunner[U]: ...
@@ -58,7 +65,7 @@ class CommandRunner[T]:
     def __call__(
         self,
         *,
-        capture: bool = False,
+        capture: bool | Undefined = Undefined.val,
         wait: bool | Undefined = Undefined.val,
         check: bool | int | Undefined = Undefined.val,
     ) -> CommandRunner[T]: ...
@@ -66,10 +73,10 @@ class CommandRunner[T]:
     def __call__[U](
         self,
         *,
-        capture: bool = False,
         from_str: typing.Callable[[str], U] | Undefined = Undefined.val,
         from_bytes: typing.Callable[[bytes], U] | Undefined = Undefined.val,
         from_proc: typing.Callable[[subprocess.Popen[bytes]], U] | Undefined = Undefined.val,
+        capture: bool | Undefined = Undefined.val,
         wait: bool | Undefined = Undefined.val,
         check: bool | int | Undefined = Undefined.val,
     ) -> CommandRunner[T] | CommandRunner[U] | CommandRunner[subprocess.Popen[bytes]]:
@@ -109,6 +116,8 @@ class CommandRunner[T]:
         if converts > 1:
             raise ValueError("At most one of from_str, from_bytes or from_proc should be provided")
 
+        args: _CommandRunnerArgs[typing.Any] = {}
+
         if not isinstance(from_str, Undefined):
             # Note: only one of from_str, from_bytes / from_proc should be defined.
             def convert(proc: subprocess.Popen[bytes]) -> U:
@@ -129,18 +138,19 @@ class CommandRunner[T]:
 
         val: CommandRunner[typing.Any] = self
         if not isinstance(from_proc, Undefined):
+            args["get_result"] = from_proc
             val = dataclasses.replace(val, get_result=from_proc)
 
         if not isinstance(capture, Undefined):
-            val = dataclasses.replace(val, capture=capture)
+            args["capture"] = capture
 
         if not isinstance(check, Undefined):
-            val = dataclasses.replace(val, check=check)
+            args["check"] = check
 
         if not isinstance(wait, Undefined):
-            val = dataclasses.replace(val, wait=wait)
+            args["wait"] = wait
 
-        return val
+        return dataclasses.replace(self, **args)
 
 
 # Provide instances for some common cases

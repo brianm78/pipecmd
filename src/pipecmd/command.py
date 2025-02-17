@@ -8,6 +8,12 @@ from .types import CommandDefinition, FileOrPath, Undefined
 from .runner import CommandRunner
 
 
+class RedirectArgs(typing.TypedDict, total=False):
+    input: FileOrPath
+    output: FileOrPath
+    append: bool
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class BaseCommand:
     """Create a command object for the given command.
@@ -117,12 +123,7 @@ class BaseCommand:
         # Implemnent in subclasses
         raise NotImplementedError()
 
-    def redirect(
-        self,
-        input: FileOrPath | Undefined = Undefined.val,
-        output: FileOrPath | Undefined = Undefined.val,
-        append: bool | Undefined = Undefined.val,
-    ) -> typing.Self:
+    def redirect(self, **kwargs: typing.Unpack[RedirectArgs]) -> typing.Self:
         """Return new command with redirected stdin/stdout.
         A value of None will be treated as /dev/null
         """
@@ -174,29 +175,17 @@ class Command(BaseCommand):
         cmd, *arglist = shlex.split(cmd)
         return cls(cmd, arglist, check=check)
 
-    def redirect(
-        self,
-        input: FileOrPath | Undefined = Undefined.val,
-        output: FileOrPath | Undefined = Undefined.val,
-        append: bool | Undefined = Undefined.val,
-    ) -> typing.Self:
+    def redirect(self, **kwargs: typing.Unpack[RedirectArgs]) -> typing.Self:
         """Return new command with redirected stdin/stdout.
         A value of None will be treated as /dev/null
         """
         # Allow > None as a shortcut to devnull.
-        if input is None:
-            input = subprocess.DEVNULL
-        if output is None:
-            output = subprocess.DEVNULL
+        if kwargs.get("input", Undefined.val) is None:
+            kwargs["input"] = subprocess.DEVNULL
+        if kwargs.get("output", Undefined.val) is None:
+            kwargs["output"] = subprocess.DEVNULL
 
-        val = self
-        if not isinstance(input, Undefined):
-            val = dataclasses.replace(val, input=input)
-        if not isinstance(output, Undefined):
-            val = dataclasses.replace(val, output=output)
-        if not isinstance(append, Undefined):
-            val = dataclasses.replace(val, append=append)
-        return val
+        return dataclasses.replace(self, **kwargs)
 
     @classmethod
     def make(cls, cmd: BaseCommand | CommandDefinition, check: bool | int = False) -> BaseCommand:
@@ -327,21 +316,27 @@ class BaseCommandChain(BaseCommand):
     def __repr__(self) -> str:
         return f" {self._joinString} ".join(repr(c) for c in self.cmds)
 
-    def redirect(
-        self,
-        input: FileOrPath | Undefined = Undefined.val,
-        output: FileOrPath | Undefined = Undefined.val,
-        append: bool | Undefined = Undefined.val,
-    ) -> typing.Self:
+    def _split_args(self, kwargs: RedirectArgs) -> tuple[RedirectArgs, RedirectArgs]:
+        """Split into input args and output/append"""
+        in_args = out_args = kwargs
+        if "input" in kwargs:
+            in_args = RedirectArgs({"input": kwargs["input"]})
+            out_args = kwargs.copy()
+            del out_args["input"]
+
+        return in_args, out_args
+
+    def redirect(self, **kwargs: typing.Unpack[RedirectArgs]) -> typing.Self:
         """Return new command with redirected stdin/stdout.
 
         Equivalent to redirecing first command in chain's stdin / last command's stdout/append
         """
+        in_args, out_args = self._split_args(kwargs)
         cmds = list(self.cmds)
-        if not isinstance(input, Undefined):
-            cmds[0] = cmds[0].redirect(input=input)
-        if not isinstance(output, Undefined) or not isinstance(append, Undefined):
-            cmds[-1] = cmds[0].redirect(output=output, append=append)
+        if in_args:
+            cmds[0] = cmds[0].redirect(**in_args)
+        if out_args:
+            cmds[-1] = cmds[-1].redirect(**out_args)
 
         return dataclasses.replace(self, cmds=cmds)
 
