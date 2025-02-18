@@ -29,6 +29,8 @@ Some examples:
     for line in cmd:
         # Iterate line by line over results.
 
+    lines = list(sh.ls)  # Converts iterable to list (note: retains newlines)
+
 Note: Each retrieval of results (str() / bytes() call) will re-run the command.
 
 
@@ -221,19 +223,22 @@ Eg. the below are all equivalent:
 
 Where a string is used, it will be split using `shlex.split`
 
-### And / Or CommandChain
+### CommandAndChain / CommandOrChain
 
-Commands combined with "&" or "^" (for ||) will construct CommandAndChain / CommandOrChain objects which will act like commands
-that run all their consituents until the first failing / first succeeding command.  Eg.
+Commands combined with "&" or "^" (for the equivalent of shell "||") will construct CommandAndChain / CommandOrChain objects which will act like commands that run all their consituents until the first failing / first succeeding command.  Eg.
 
     sh.some_command & sh.echo["some_command succeeded"]
     sh.some_command ^ sh.echo["some_command failed"]
 
-The same coercion rules apply as for CommandChain.
+The same coercion rules apply as for CommandChain, but no redirection of output is performed.  Individual commands in the chain
+may be redirected as normal.  EG:
+
+    sh.foo ^ (sh.echo["Command failed:"] >> log.txt) & echo["Logged failure"]
+
 
 ### CommandRunner
 
-A few convenience objects (`run`, `bg`, `capture` are provided to immediately run commands when piped to.
+A few convenience objects (`run`, `bg`, `capture`) are provided to immediately run commands when piped to.
 These are instances of CommandRunner, and may be called to produce a new CommandRunner object overriding
 various settings.  Eg:
 
@@ -273,6 +278,8 @@ This default behaviour may be customised by calling the objects with the followi
         If True, check the returncode of the final command is 0.  Otherwise raise an exception.
         If an integer, instead checks the returncode matches this value.
 
+This will return a new CommandRunner object with the given default behaviour.
+
 Eg. `bg` is equivalent to `run(wait=False)` and `capture` is equivalent to `run(from_str=str)`
 
 ### Helper Objects
@@ -290,34 +297,3 @@ Eg.
 
     checked.false()                 # Will raise exception.
     checked.echo | ["false"] | run  # As will this.
-
-## TODO
-
- - Considering overloading __bool__ to run and check returncode which would allow things like:
-    if sh.test["-e", file]:
-        ...
-
-    And even *kind-of* allows chaining directly with python's short-cirtuiting logic operators like:
-
-        sh.test["!", "-e", file] and sh.touch(file) | run
-
-    But this really eagerly evaluates the first command at definition time, which has inuintuitive semantics
-    compared to how everything else works, so I think this is probably a bad idea.
-
- - Not sure if I should re-jig file redirection.  Currently works directionally like:
-
-        input > command > output
-
-    Or
-
-        output < command < input
-
-    But that may be overly confusing.  The `output < command` in particular looks a bit odd.
-    `input >` seems more reasonable since it mirrors how pipes work.
-
-    Should perhaps only support shell style where redirection appears after command only.  Ie:
-
-        command <input >output
-
-    (This does currently work, but maybe should be the only supported form)
-    Alternatively, maybe allow input > command but not output < command
